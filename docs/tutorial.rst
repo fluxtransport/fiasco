@@ -8,7 +8,7 @@ While the main advantages of fiasco lie in its high-level interface to the CHIAN
 For example, say we want to parse the energy level file for Fe V (i.e. iron with four electrons missing)
 
     >>> from fiasco.io import Parser
-    >>> p = Parser('fe_5.elvlc')
+    >>> p = Parser('fe_5.elvlc', ascii_dbase_root=getfixture('ascii_dbase_root'))
     >>> table = p.parse()
     >>> table # doctest: +SKIP
     <QTable length=34>
@@ -67,8 +67,8 @@ More details for how to access data from these tables can be found in the `Astro
 
 Note that in the above example we only provided the filename because fiasco is able to infer the path to the file using the information in `~fiasco.defaults`. However, the parser can be used on standalone files as well, i.e. CHIANTI data files that are outside the directory specificied in `fiasco.defaults['ascii_dbase_root']`,
 
-    >>> p = Parser('/path/to/standalone/chianti/data/fe_5.elvlc')
-    >>> table = p.parse()
+    >>> p = Parser('/path/to/standalone/chianti/data/fe_5.elvlc') # doctest: +SKIP
+    >>> table = p.parse() # doctest: +SKIP
 
 Ions
 ------
@@ -78,12 +78,12 @@ The CHIANTI database is organized around individual ions, with multiple types of
     >>> import astropy.units as u
     >>> from fiasco import Ion
     >>> temperature = np.logspace(5, 7, 100) * u.K
-    >>> ion = Ion('Fe 15', temperature)
+    >>> ion = Ion('Fe 15', temperature, hdf5_dbase_root=getfixture('hdf5_dbase_root'))
 
 This creates a `~fiasco.Ion` object for the Fe XV ion. Note also the same object can also be created in the following ways,
 
-    >>> ion = Ion('iron 15', temperature)
-    >>> ion = Ion('iron 14+', temperature)
+    >>> ion = Ion('iron 15', temperature, hdf5_dbase_root=getfixture('hdf5_dbase_root'))
+    >>> ion = Ion('iron 14+', temperature, hdf5_dbase_root=getfixture('hdf5_dbase_root'))
 
 
 Basic Metadata

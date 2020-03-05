@@ -46,7 +46,7 @@ class Ion(IonBase, ContinuumBase):
     @u.quantity_input
     def __init__(self, ion_name, temperature: u.K, *args, **kwargs):
         super().__init__(ion_name, *args, **kwargs)
-        self.temperature = temperature
+        self.temperature = np.atleast_1d(temperature)
         # Get selected datasets
         # TODO: do not hardcode defaults, pull from rc file
         self._dset_names = {}
@@ -254,6 +254,13 @@ Using Datasets:
         density : `~astropy.units.Quantity`
         include_protons : `bool`, optional
             If True (default), include proton excitation and de-excitation rates
+
+        Returns
+        -------
+        `~astropy.units.Quantity`
+            A ``(l, m, n)`` shaped quantity, where ``l`` is the number of
+            temperatures, ``m`` is the number of densities, and ``n``
+            is the number of energy levels.
         """
         level = self._elvlc['level']
         lower_level = self._scups['lower_level']
@@ -278,7 +285,9 @@ Using Datasets:
         if include_protons and self._psplups is not None:
             lower_level_p = self._psplups['lower_level']
             upper_level_p = self._psplups['upper_level']
-            pe_ratio = proton_electron_ratio(self.temperature, **self._dset_names)
+            pe_ratio = proton_electron_ratio(self.temperature,
+                                             **self._dset_names,
+                                             hdf5_dbase_root=self.hdf5_dbase_root)
             proton_density = np.outer(pe_ratio, density)[:, :, np.newaxis]
             ex_rate_p = self.proton_collision_excitation_rate()
             dex_rate_p = self.proton_collision_deexcitation_rate()
@@ -288,6 +297,7 @@ Using Datasets:
                 upper_level_p, level, dex_rate_p.value.T, 0).T * dex_rate_p.unit
 
         # Populate density dependent terms and solve matrix equation for each density value
+        density = np.atleast_1d(density)
         populations = np.zeros(self.temperature.shape + density.shape + (level.max(),))
         for i, d in enumerate(density):
             c_matrix = coeff_matrix.copy()
@@ -724,7 +734,7 @@ Using Datasets:
             sum_factor += omega / omega_0 * np.exp(-E_scaled) * cross_section
 
         return (prefactor * energy_temperature_factor * sum_factor)
-   
+
     def free_free_loss(self):
         """
         Wavelength-integrated radiative losses due to free-free emission
