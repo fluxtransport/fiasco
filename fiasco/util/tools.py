@@ -6,8 +6,7 @@ import numpy as np
 from scipy.interpolate import splrep, splev
 import astropy.units as u
 
-__all__ = ['vectorize_where', 'vectorize_where_sum', 'burgess_tully_descale',
-           'burgess_tully_descale_vectorize']
+__all__ = ['vectorize_where', 'vectorize_where_sum', 'burgess_tully_descale']
 
 
 def vectorize_where(x_1, x_2):
@@ -53,57 +52,6 @@ def vectorize_where_sum(x_1, x_2, y, axis=None):
     return u.Quantity(collect(x_1, x_2, y), unit)
 
 
-def burgess_tully_descale(x, y, energy_ratio, c, scaling_type):
-    """
-    Convert scaled Burgess-Tully parameters to physical quantities. For more details see
-    [1]_.
-
-    Parameters
-    ----------
-    x : `~astropy.units.Quantity`
-    y : `~astropy.units.Quantity`
-    energy_ratio : `~astropy.units.Quantity`
-        Ratio of temperature to photon energy
-    c : `~astropy.units.Quantity`
-        Scaling constant
-    scaling_type : `int`
-
-    Returns
-    -------
-    upsilon : `~numpy.NDArray`
-        Descaled collision strength or cross-section
-
-    References
-    ----------
-    .. [1] Burgess, A. and Tully, J. A., 1992, A&A, `254, 436 <http://adsabs.harvard.edu/abs/1992A%26A...254..436B>`_
-    """
-    nots = splrep(x, y, s=0)
-    if scaling_type == 1:
-        x_new = 1.0 - np.log(c) / np.log(energy_ratio + c)
-        upsilon = splev(x_new, nots, der=0) * np.log(energy_ratio + np.e)
-    elif scaling_type == 2:
-        x_new = energy_ratio / (energy_ratio + c)
-        upsilon = splev(x_new, nots, der=0)
-    elif scaling_type == 3:
-        x_new = energy_ratio / (energy_ratio + c)
-        upsilon = splev(x_new, nots, der=0) / (energy_ratio + 1.0)
-    elif scaling_type == 4:
-        x_new = 1.0 - np.log(c) / np.log(energy_ratio + c)
-        upsilon = splev(x_new, nots, der=0) * np.log(energy_ratio + c)
-    elif scaling_type == 5:
-        # dielectronic
-        x_new = energy_ratio / (energy_ratio + c)
-        upsilon = splev(x_new, nots, der=0) / energy_ratio
-    elif scaling_type == 6:
-        # protons
-        x_new = energy_ratio / (energy_ratio + c)
-        upsilon = 10**splev(x_new, nots, der=0)
-    else:
-        raise ValueError('Unrecognized BT92 scaling option.')
-
-    return upsilon
-
-
 def _xnew(energy_ratio, c, scaling_type):
     energy_ratio = energy_ratio.T
     if scaling_type in [1, 4]:
@@ -112,12 +60,106 @@ def _xnew(energy_ratio, c, scaling_type):
         return energy_ratio / (energy_ratio + c)
 
 
-def burgess_tully_descale_vectorize(x, y, energy_ratio, c, scaling_type):
+def burgess_tully_descale(x, y, energy_ratio, c, scaling_type):
     """
-    Vectorized version of `burgess_tully_descale`
+    Convert scaled Burgess-Tully [1]_ parameters to physical quantities.
+
+    For a scaled temperature, :math:`x` and scaled effective collision strength
+    :math:`y`, the effective collision strength can be calculated as a function
+    of the scaled energy :math:`U=k_BT_e/\Delta E_{ij}` the ratio between the thermal
+    energy and the energy of the transition :math:`ij`.
+
+    There are 6 different scaling types, depending on the type of transition. This scaling
+    is explained in detail in section 5 of [1]_. For types 1 and 4, the scaled temperatures
+    and collision strengths are related to :math:`U` and :math:`\\Upsilon` by,
+
+    * type 1
+      
+      .. math::
+
+            x = 1 - \\frac{\ln C}{\ln{(U + C)}},\quad
+            y = \\frac{\\Upsilon}{\log(U + e)}
+
+    * type 2
+
+      .. math::
+
+            x = \\frac{U}{U + C},\quad
+            y = \\Upsilon
+
+    * type 3
+
+      .. math::
+
+            x = \\frac{U}{U + C},\quad
+            y = (U + 1)\\Upsilon
+
+    * type 4
+
+      .. math::
+
+            x = 1 - \\frac{\ln C}{\ln{(U + C)}},\quad
+            y = \\frac{\\Upsilon}{\log(U + C)}
+
+    * type 5
+
+      .. math::
+
+            x = \\frac{U}{U + C},\quad
+            y = \\Upsilon U
+
+    * type 6
+
+      .. math::
+
+            x = \\frac{U}{U + C},\quad
+            y = \log_{10}\\Upsilon
+
+    where :math:`C` is a scaling constant that is different for each transition. Note that [1]_
+    only considered scaling types 1 through 4. Types 5 and 6 correspond to dielectron and proton
+    transitions, respectively.
+
+    To "descale" the scaled effective collision strengths that are stored in the database,
+    a spline fit is computed to the new :math:`x` as computed from :math:`U` and then
+    the relationship between :math:`\\Upsilon` and :math:`y` is inverted to get
+    :math:`\\Upsilon` as a function of :math:`U`.
+    
+    Parameters
+    ----------
+    x : `array-like`
+        Scaled temperature. First dimension should have length ``n``, the number of
+        transitions. The second dimension will be the number of spline points, but may
+        be different for each row. If each row has ``l`` spline points, `x` should 
+        have shape ``(n,l)``. If they are not all equal, `x` will have shape ``(n,)``.
+    y : `array-like`
+        Scaled collision strength. Must have the same dimensions as `x`.
+    energy_ratio : `array-like`
+        Ratio between the thermal energy and that of each transition with shape ``(n,m)``,
+        where ``m`` is the dimension of the temperature array.
+    c : `array-like`
+        Scaling constant for each transiton with shape ``(n,)``
+    scaling_type : `array-like`
+        The type of descaling to apply for each transition with shape ``(n,)``. Must be between
+        1 and 6
+
+    Returns
+    -------
+    upsilon : `array-like`
+        Descaled collision strength or cross-section with the same shape as `energy_ratio`.
+
+    References
+    ----------
+    .. [1] Burgess, A. and Tully, J. A., 1992, A&A, `254, 436 <http://adsabs.harvard.edu/abs/1992A%26A...254..436B>`_
     """
-    x = np.atleast_2d(x)
-    y = np.atleast_2d(y)
+    # NOTE: Arrays with staggered number of columns, which have an 'object'
+    # dtype (denoted by 'O') appear to be 1D, but should not be cast to 2D
+    # as this will actually add an extra dimension and throw off the function
+    # mapping
+    x = np.asarray(x)
+    y = np.asarray(y)
+    if x.dtype != np.dtype('O'):
+        x = np.atleast_2d(x)
+        y = np.atleast_2d(y)
     energy_ratio = np.atleast_2d(u.Quantity(energy_ratio).to_value(u.dimensionless_unscaled))
     c = u.Quantity(c).to_value(u.dimensionless_unscaled)
 
